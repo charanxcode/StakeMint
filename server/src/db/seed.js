@@ -29,9 +29,11 @@ const investors = [
     { name: 'Ananya Gupta', email: 'ananya@example.com', phone: '9876543213' },
 ];
 
+const investorIds = [];
 for (const inv of investors) {
     const res = db.prepare(`INSERT INTO users (name, email, phone, password_hash, role, kyc_status) VALUES (?, ?, ?, ?, 'investor', 'approved')`)
         .run(inv.name, inv.email, inv.phone, investorHash);
+    investorIds.push(Number(res.lastInsertRowid));
     db.prepare('INSERT INTO kyc_details (user_id, pan_number, aadhaar_number, status) VALUES (?, ?, ?, ?)')
         .run(res.lastInsertRowid, 'ABCDE' + Math.floor(1000 + Math.random() * 9000) + 'F', Math.floor(100000000000 + Math.random() * 899999999999).toString(), 'approved');
 }
@@ -198,6 +200,7 @@ const insertTeamMember = db.prepare(
     'INSERT INTO team_members (startup_id, name, role, linkedin_url) VALUES (?, ?, ?, ?)'
 );
 
+const startupIds = [];
 startups.forEach((s, idx) => {
     const featured = idx < 4 ? 1 : 0;
     const daysAgo = `-${30 - idx * 3} days`;
@@ -207,24 +210,24 @@ startups.forEach((s, idx) => {
         s.min_investment, s.equity_offered, s.valuation, s.arr, s.mom_growth, s.burn_rate,
         s.use_of_funds, s.close_date, featured, 'B2B SaaS / Subscription', daysAgo
     );
+    startupIds.push(Number(result.lastInsertRowid));
     for (const member of s.team) {
         insertTeamMember.run(result.lastInsertRowid, member.name, member.role, member.linkedin);
     }
 });
 
-// Create sample investments
-const investorIds = [2, 3, 4]; // priya, rahul, ananya
+// Create sample investments (using index-based references into investorIds and startupIds)
 const investmentData = [
-    { investor: 0, startup: 1, amount: 25000 },
-    { investor: 0, startup: 2, amount: 50000 },
-    { investor: 0, startup: 4, amount: 10000 },
-    { investor: 0, startup: 6, amount: 15000 },
-    { investor: 1, startup: 1, amount: 100000 },
-    { investor: 1, startup: 3, amount: 25000 },
-    { investor: 1, startup: 7, amount: 50000 },
-    { investor: 2, startup: 2, amount: 30000 },
-    { investor: 2, startup: 5, amount: 20000 },
-    { investor: 2, startup: 8, amount: 10000 },
+    { investor: 0, startup: 0, amount: 25000 },
+    { investor: 0, startup: 1, amount: 50000 },
+    { investor: 0, startup: 3, amount: 10000 },
+    { investor: 0, startup: 5, amount: 15000 },
+    { investor: 1, startup: 0, amount: 100000 },
+    { investor: 1, startup: 2, amount: 25000 },
+    { investor: 1, startup: 6, amount: 50000 },
+    { investor: 2, startup: 1, amount: 30000 },
+    { investor: 2, startup: 4, amount: 20000 },
+    { investor: 2, startup: 7, amount: 10000 },
 ];
 
 const insertInvestment = db.prepare(`
@@ -238,21 +241,22 @@ const insertTransaction = db.prepare(`
 `);
 
 investmentData.forEach((inv, idx) => {
-    const startupRow = db.prepare('SELECT * FROM startups WHERE id = ?').get(inv.startup);
+    const actualStartupId = startupIds[inv.startup];
+    const startupRow = db.prepare('SELECT * FROM startups WHERE id = ?').get(actualStartupId);
     if (!startupRow) return;
     const equity = (inv.amount / startupRow.valuation) * 100;
     const txnId = 'TXN' + (Date.now() + idx).toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
     const daysAgo = `-${20 - idx * 2} days`;
-    insertInvestment.run(investorIds[inv.investor], inv.startup, inv.amount, equity, txnId, daysAgo);
+    insertInvestment.run(investorIds[inv.investor], actualStartupId, inv.amount, equity, txnId, daysAgo);
     insertTransaction.run(investorIds[inv.investor], inv.amount, txnId, startupRow.name, daysAgo);
 });
 
-// Add watchlist entries
-db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(2, 3);
-db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(2, 5);
-db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(2, 7);
-db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(3, 1);
-db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(3, 4);
+// Add watchlist entries (using actual IDs)
+db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(investorIds[0], startupIds[2]);
+db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(investorIds[0], startupIds[4]);
+db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(investorIds[0], startupIds[6]);
+db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(investorIds[1], startupIds[0]);
+db.prepare('INSERT INTO watchlist (investor_id, startup_id) VALUES (?, ?)').run(investorIds[1], startupIds[3]);
 
 // Add blog posts
 const blogPosts = [
@@ -284,12 +288,12 @@ for (const post of blogPosts) {
         .run(post.title, post.slug, post.excerpt, post.content, post.author);
 }
 
-// Notifications for investors
-db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(2, 'Welcome to StakeMint! 🎉', 'Your account has been created and KYC verified. Start exploring startups!');
-db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(2, 'Investment Confirmed! 💰', 'You invested ₹25,000 in CloudNine SaaS.');
-db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(2, 'New Startup Listed! 🚀', 'SwiftHaul is now live on StakeMint. Check it out!');
-db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(3, 'Welcome to StakeMint! 🎉', 'Your account has been created and KYC verified.');
-db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(3, 'Portfolio Update 📊', 'CloudNine SaaS reported 22% MoM growth this quarter.');
+// Notifications for investors (using actual IDs)
+db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(investorIds[0], 'Welcome to StakeMint! 🎉', 'Your account has been created and KYC verified. Start exploring startups!');
+db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(investorIds[0], 'Investment Confirmed! 💰', 'You invested ₹25,000 in CloudNine SaaS.');
+db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(investorIds[0], 'New Startup Listed! 🚀', 'SwiftHaul is now live on StakeMint. Check it out!');
+db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(investorIds[1], 'Welcome to StakeMint! 🎉', 'Your account has been created and KYC verified.');
+db.prepare('INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)').run(investorIds[1], 'Portfolio Update 📊', 'CloudNine SaaS reported 22% MoM growth this quarter.');
 
 console.log('✅ Seed data created successfully!');
 console.log('   - 1 admin (admin@platform.com / Admin@123)');
